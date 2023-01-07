@@ -2901,6 +2901,14 @@ HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
         return S_OK;
     }
 
+    if (IsEqualGUID(riid, &IID_ID3D12DeviceLfx2))
+    {
+        struct d3d12_device *device = impl_from_ID3D12Device(iface);
+        d3d12_device_vkd3d_ext_AddRef(&device->ID3D12DeviceExt_iface);
+        *object = &device->ID3D12DeviceLfx2_iface;
+        return S_OK;
+    }
+
     WARN("%s not implemented, returning E_NOINTERFACE.\n", debugstr_guid(riid));
 
     *object = NULL;
@@ -2947,6 +2955,7 @@ static void d3d12_device_destroy(struct d3d12_device *device)
     vkd3d_private_store_destroy(&device->private_store);
 
     vkd3d_cleanup_format_info(device);
+    vkd3d_lfx2_context_free(&device->lfx2_context);
     vkd3d_memory_info_cleanup(&device->memory_info, device);
     vkd3d_shader_debug_ring_cleanup(&device->debug_ring, device);
 #ifdef VKD3D_ENABLE_BREADCRUMBS
@@ -5950,15 +5959,15 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommandQueue1(d3d12_device_i
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommittedResource3(d3d12_device_iface *iface,
-    const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags, 
+    const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
     const D3D12_RESOURCE_DESC1 *desc, D3D12_BARRIER_LAYOUT initial_layout,
     const D3D12_CLEAR_VALUE *optimized_clear_value, ID3D12ProtectedResourceSession *protected_session,
     UINT32 num_castable_formats, DXGI_FORMAT *castable_formats, REFIID iid, void **resource)
 {
     FIXME("iface %p, heap_properties %p, heap_flags %u, desc %p, initial_layout %u, "
             "optimized_clear_value %p, protected_session %p, num_castable_formats %u, "
-            "castable_formats %p, iid %s, resource %p stub!\n", iface, 
-            heap_properties, heap_flags, desc, initial_layout, optimized_clear_value, 
+            "castable_formats %p, iid %s, resource %p stub!\n", iface,
+            heap_properties, heap_flags, desc, initial_layout, optimized_clear_value,
             protected_session, num_castable_formats, castable_formats, debugstr_guid(iid), resource);
 
     return E_NOTIMPL;
@@ -5966,12 +5975,12 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommittedResource3(d3d12_dev
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePlacedResource2(d3d12_device_iface *iface,
     ID3D12Heap *heap, UINT64 heap_offset, const D3D12_RESOURCE_DESC1 *desc, D3D12_BARRIER_LAYOUT initial_layout,
-    const D3D12_CLEAR_VALUE *optimized_clear_value, UINT32 num_castable_formats, 
+    const D3D12_CLEAR_VALUE *optimized_clear_value, UINT32 num_castable_formats,
     DXGI_FORMAT *castable_formats, REFIID iid, void **resource)
 {
     FIXME("iface %p, heap %p, heap_offset %#"PRIx64", desc %p, initial_layout %u, optimized_clear_value %p, "
             "num_castable_formats %u, castable_formats %p, iid %s, resource %p stub!\n", iface,
-            heap_offset, desc, initial_layout, optimized_clear_value, num_castable_formats, 
+            heap_offset, desc, initial_layout, optimized_clear_value, num_castable_formats,
             castable_formats, debugstr_guid(iid), resource);
 
     return E_NOTIMPL;
@@ -5984,7 +5993,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateReservedResource2(d3d12_devi
 {
     FIXME("iface %p, desc %p initial_layout %u, optimized_clear_value %p, protected_session %p, "
             "num_castable_formats %u, castable_formats %p, iid %s, resource %p stub!\n", iface,
-            initial_layout, optimized_clear_value, protected_session, num_castable_formats, 
+            initial_layout, optimized_clear_value, protected_session, num_castable_formats,
             castable_formats, debugstr_guid(iid), resource);
 
     return E_NOTIMPL;
@@ -6921,6 +6930,7 @@ static void d3d12_device_replace_vtable(struct d3d12_device *device)
 
 extern CONST_VTBL struct ID3D12DeviceExtVtbl d3d12_device_vkd3d_ext_vtbl;
 extern CONST_VTBL struct ID3D12DXVKInteropDeviceVtbl d3d12_dxvk_interop_device_vtbl;
+extern CONST_VTBL struct ID3D12DeviceLfx2Vtbl d3d12_device_lfx2_ext_vtbl;
 
 static HRESULT d3d12_device_init(struct d3d12_device *device,
         struct vkd3d_instance *instance, const struct vkd3d_device_create_info *create_info)
@@ -6959,6 +6969,7 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     
     device->ID3D12DeviceExt_iface.lpVtbl = &d3d12_device_vkd3d_ext_vtbl;
     device->ID3D12DXVKInteropDevice_iface.lpVtbl = &d3d12_dxvk_interop_device_vtbl;
+    device->ID3D12DeviceLfx2_iface.lpVtbl = &d3d12_device_lfx2_ext_vtbl;
 
     if ((rc = rwlock_init(&device->vertex_input_lock)))
     {
@@ -7014,6 +7025,8 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
             goto out_cleanup_debug_ring;
 #endif
 
+    vkd3d_lfx2_context_init(&device->lfx2_context, (d3d12_device_iface *)device);
+
     if (vkd3d_descriptor_debug_active_qa_checks())
     {
         if (FAILED(hr = vkd3d_descriptor_debug_alloc_global_info(&device->descriptor_qa_global_info,
@@ -7055,6 +7068,7 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
 out_cleanup_descriptor_qa_global_info:
     vkd3d_descriptor_debug_free_global_info(device->descriptor_qa_global_info, device);
 out_cleanup_breadcrumb_tracer:
+    vkd3d_lfx2_context_free(&device->lfx2_context);
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
         vkd3d_breadcrumb_tracer_cleanup(&device->breadcrumb_tracer, device);
