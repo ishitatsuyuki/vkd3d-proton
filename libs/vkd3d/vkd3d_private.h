@@ -46,6 +46,8 @@
 #include <limits.h>
 #include <stdbool.h>
 
+#include "latencyflex2.h"
+
 #define VK_CALL(f) (vk_procs->f)
 
 #define MAKE_MAGIC(a,b,c,d) (((uint32_t)a) | (((uint32_t)b) << 8) | (((uint32_t)c) << 16) | (((uint32_t)d) << 24))
@@ -3646,6 +3648,13 @@ struct vkd3d_cached_command_allocator
     uint32_t vk_family_index;
 };
 
+struct vkd3d_lfx2_context {
+    pthread_mutex_t current_implicit_frame_lock;
+    lfx2ImplicitContext *implicit_context;
+    lfx2Dx12Context *dx12_context;
+    lfx2Frame *current_implicit_frame;
+};
+
 /* ID3D12Device */
 typedef ID3D12Device9 d3d12_device_iface;
 
@@ -3654,6 +3663,7 @@ struct vkd3d_descriptor_qa_heap_buffer_data;
 
 /* ID3D12DeviceExt */
 typedef ID3D12DeviceExt d3d12_device_vkd3d_ext_iface;
+typedef ID3D12DeviceLfx2 d3d12_device_lfx2_ext_iface;
 
 struct d3d12_device_scratch_pool
 {
@@ -3665,6 +3675,7 @@ struct d3d12_device
 {
     d3d12_device_iface ID3D12Device_iface;
     d3d12_device_vkd3d_ext_iface ID3D12DeviceExt_iface;
+    d3d12_device_lfx2_ext_iface ID3D12DeviceLfx2_iface;
     LONG refcount;
 
     VkDevice vk_device;
@@ -3722,6 +3733,7 @@ struct d3d12_device
     struct vkd3d_shader_debug_ring debug_ring;
     struct vkd3d_pipeline_library_disk_cache disk_cache;
     struct vkd3d_global_descriptor_buffer global_descriptor_buffer;
+    struct vkd3d_lfx2_context lfx2_context;
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     struct vkd3d_breadcrumb_tracer breadcrumb_tracer;
 #endif
@@ -4369,5 +4381,25 @@ HANDLE vkd3d_open_kmt_handle(HANDLE kmt_handle);
 #define VKD3D_DRIVER_VERSION_MINOR_NV(v) (((v) >> 14) & 0xff)
 #define VKD3D_DRIVER_VERSION_PATCH_NV(v) (((v) >>  6) & 0xff)
 #define VKD3D_DRIVER_VERSION_MAKE_NV(major, minor, patch) (((major) << 22) | ((minor) << 14) | ((patch) << 6))
+
+struct vkd3d_lfx2_vtable {
+    struct lfx2Dx12Context *(*Dx12ContextCreate)(ID3D12Device *device);
+    void (*Dx12ContextRelease)(struct lfx2Dx12Context *context);
+    lfx2Dx12SubmitAux (*Dx12ContextBeforeSubmit)(struct lfx2Dx12Context *context, ID3D12CommandQueue *queue);
+    void (*Dx12ContextBeginFrame)(struct lfx2Dx12Context *context, struct lfx2Frame *frame);
+    void (*Dx12ContextEndFrame)(struct lfx2Dx12Context *context, struct lfx2Frame *frame);
+    lfx2Timestamp (*TimestampNow)(void);
+    lfx2Timestamp (*TimestampFromQpc)(uint64_t qpc);
+    struct lfx2ImplicitContext *(*ImplicitContextCreate)(void);
+    void (*ImplicitContextRelease)(struct lfx2ImplicitContext *context);
+    void (*ImplicitContextReset)(struct lfx2ImplicitContext *context);
+    struct lfx2Frame *(*FrameCreateImplicit)(struct lfx2ImplicitContext *context, lfx2Timestamp *out_timestamp);
+    struct lfx2Frame *(*FrameDequeueImplicit)(struct lfx2ImplicitContext *context, bool critical);
+    void (*FrameRelease)(struct lfx2Frame *frame);
+};
+
+struct vkd3d_lfx2_vtable *vkd3d_lfx2_get_vtable(void);
+void vkd3d_lfx2_context_init(struct vkd3d_lfx2_context *context, d3d12_device_iface *device);
+void vkd3d_lfx2_context_free(struct vkd3d_lfx2_context *context);
 
 #endif  /* __VKD3D_PRIVATE_H */

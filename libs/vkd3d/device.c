@@ -3005,6 +3005,14 @@ HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
         return S_OK;
     }
 
+    if (IsEqualGUID(riid, &IID_ID3D12DeviceLfx2))
+    {
+        struct d3d12_device *device = impl_from_ID3D12Device(iface);
+        d3d12_device_vkd3d_ext_AddRef(&device->ID3D12DeviceExt_iface);
+        *object = &device->ID3D12DeviceLfx2_iface;
+        return S_OK;
+    }
+
     WARN("%s not implemented, returning E_NOINTERFACE.\n", debugstr_guid(riid));
 
     *object = NULL;
@@ -3041,6 +3049,7 @@ static void d3d12_device_destroy(struct d3d12_device *device)
     vkd3d_private_store_destroy(&device->private_store);
 
     vkd3d_cleanup_format_info(device);
+    vkd3d_lfx2_context_free(&device->lfx2_context);
     vkd3d_memory_info_cleanup(&device->memory_info, device);
     vkd3d_shader_debug_ring_cleanup(&device->debug_ring, device);
 #ifdef VKD3D_ENABLE_BREADCRUMBS
@@ -6711,6 +6720,7 @@ static bool d3d12_device_supports_feature_level(struct d3d12_device *device, D3D
 }
 
 extern CONST_VTBL struct ID3D12DeviceExtVtbl d3d12_device_vkd3d_ext_vtbl;
+extern CONST_VTBL struct ID3D12DeviceLfx2Vtbl d3d12_device_lfx2_ext_vtbl;
 
 static HRESULT d3d12_device_init(struct d3d12_device *device,
         struct vkd3d_instance *instance, const struct vkd3d_device_create_info *create_info)
@@ -6746,6 +6756,7 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     }
     
     device->ID3D12DeviceExt_iface.lpVtbl = &d3d12_device_vkd3d_ext_vtbl;
+    device->ID3D12DeviceLfx2_iface.lpVtbl = &d3d12_device_lfx2_ext_vtbl;
 
     if (FAILED(hr = vkd3d_create_vk_device(device, create_info)))
         goto out_free_mutex;
@@ -6789,6 +6800,8 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
             goto out_cleanup_debug_ring;
 #endif
 
+    vkd3d_lfx2_context_init(&device->lfx2_context, (d3d12_device_iface *)device);
+
     if (vkd3d_descriptor_debug_active_qa_checks())
     {
         if (FAILED(hr = vkd3d_descriptor_debug_alloc_global_info(&device->descriptor_qa_global_info,
@@ -6818,6 +6831,7 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
 out_cleanup_descriptor_qa_global_info:
     vkd3d_descriptor_debug_free_global_info(device->descriptor_qa_global_info, device);
 out_cleanup_breadcrumb_tracer:
+    vkd3d_lfx2_context_free(&device->lfx2_context);
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
         vkd3d_breadcrumb_tracer_cleanup(&device->breadcrumb_tracer, device);

@@ -49,7 +49,8 @@ vkd3d_src = [
   'vkd3d_main.c',
   'raytracing_pipeline.c',
   'acceleration_structure.c',
-  'swapchain_new.c'
+  'swapchain_new.c',
+  'lfx2.c'
 ]
 
 if vkd3d_platform == 'windows'

@@ -35,3 +35,13 @@ interface ID3D12DeviceExt : IUnknown
     HRESULT CaptureUAVInfo(D3D12_UAV_INFO *uav_info);
 }
 
+[
+    uuid(0096227d-5494-4e19-9686-4f816fc36345),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12DeviceLfx2 : IUnknown
+{
+    void EnqueueFrameLFX2(UINT64 *out_timestamp, void *out_frame);
+}
