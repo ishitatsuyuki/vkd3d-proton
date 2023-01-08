@@ -3663,7 +3663,7 @@ struct vkd3d_descriptor_qa_heap_buffer_data;
 
 /* ID3D12DeviceExt */
 typedef ID3D12DeviceExt d3d12_device_vkd3d_ext_iface;
-typedef ID3D12DeviceLfx2 d3d12_device_lfx2_ext_iface;
+typedef ID3DLfx2ExtDevice d3d12_device_lfx2_ext_iface;
 
 struct d3d12_device_scratch_pool
 {
